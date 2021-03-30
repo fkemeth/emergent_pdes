@@ -1,0 +1,9 @@
+*.py~
+fig/
+
+*.eps
+*.pdf
+
+*__pycache__/
+
+*cgle_dmaps/
