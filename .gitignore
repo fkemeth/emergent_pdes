@@ -4,8 +4,10 @@ fig/
 
 *.eps
 *.pdf
+*.npy
+*.model
 
 *__pycache__/
 
 *cgle_dmaps/
-StuartLandauNoDerivs
+*log/

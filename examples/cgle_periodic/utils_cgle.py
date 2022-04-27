@@ -57,6 +57,7 @@ class Dataset(torch.utils.data.Dataset):
         # Length of left and right part for which no dt information is available
         self.off_set = int((int(config["kernel_size"])-1)/2)
         self.use_fd_dt = config.getboolean("use_fd_dt")
+        self.config = config
         self.rescale_dx = float(config["rescale_dx"])
         self.use_param = config.getboolean("use_param")
         self.verbose = verbose
@@ -85,7 +86,7 @@ class Dataset(torch.utils.data.Dataset):
                 data = pickle.load(pkl_file)
                 pkl_file.close()
                 x_data.append(data["data"])
-                delta_x.append(np.repeat(data["L"]/data["N"], len(data["data"])))
+                dx = data["L"]/data["N"]
                 param.append(np.repeat(data["param"], len(data["data"])))
 
         # Delta t for temporal finite difference estimation
@@ -95,10 +96,21 @@ class Dataset(torch.utils.data.Dataset):
 
         # Prepare data
         y_data = []
-        for idx, data_point in enumerate(x_data):
+        for idx, data in enumerate(x_data):
             if self.use_fd_dt:
-                y_data.append((data_point[1:, self.off_set:-self.off_set] -
-                               data_point[:-1, self.off_set:-self.off_set])/self.delta_t)
+                if int(self.config["fd_dt_acc"]) == 2:
+                    # accuracy 2
+                    y_data.append((data[2:]-data[:-2])/(2*self.delta_t))
+                    x_data.append(data[1:-1])
+                    delta_x.append(np.repeat(dx, len(data)-2))
+                elif int(self.config["fd_dt_acc"]) == 4:
+                    # accuracy 4
+                    y_data.append((data[:-4]-8*data[1:-3]+8 *
+                                   data[3:-1]-data[4:])/(12*self.delta_t))
+                    x_data.append(data[2:-2])
+                    delta_x.append(np.repeat(dx, len(data)-4))
+                else:
+                    raise ValueError("Finite difference in time accuracy must be 2 or 4.")
             # If fd is attached to model, remove off set. TODO do fd here.
             x_data[idx] = x_data[idx][:-1]
             delta_x[idx] = delta_x[idx][:-1]
