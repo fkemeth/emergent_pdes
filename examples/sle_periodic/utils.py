@@ -11,10 +11,13 @@ import findiff
 import numpy as np
 import matplotlib.pyplot as plt
 
+import cudamat as cm
+
 from sklearn.decomposition import TruncatedSVD
 from scipy.integrate import ode
 from scipy import interpolate
 
+import int.matthews as mint
 import fun.dmaps as dmaps
 
 torch.set_default_dtype(torch.float32)
@@ -48,6 +51,64 @@ def reset_data(config):
             output.close()
 
 
+def perturb_limit_cycle(Ad, n, config):
+    """Get the slow directions of the Matthews system."""
+    n_per = get_period(np.linalg.norm(Ad["data"][int(n*int(config["T_off"])):] -
+                                      Ad["data"][int(n*int(config["T_off"])), :], axis=1))
+
+    print("Period is "+str(n_per))
+    dt_per = (Ad["tmax"]-Ad["tmin"])/Ad["T"]
+
+    print("Calculating monodromy matrix.")
+    t_start = n*int(config["T_off"])
+    progress_bar = tqdm.tqdm(range(t_start, t_start+n_per),
+                             total=n_per, leave=True)
+
+    cm.cublas_init()
+    v_mono = cm.CUDAMatrix(np.eye(2*int(config["N_int"])))
+
+    # for i in range(t_start, t_start+n_per):
+    for i in progress_bar:
+        # print(i)
+        # jacobian = cm.CUDAMatrix(mint.jac(0, Ad["data"][i], Ad["pars"]))
+        # v_mono = v_mono + dt_per*cm.dot(jacobian, v_mono)
+        jacobian = cm.CUDAMatrix(mint.jac(0, Ad["data"][i], Ad["pars"]))
+        v_mono.add(cm.dot(jacobian, v_mono).mult(dt_per), target=v_mono)
+
+    evals, evecs = np.linalg.eig(v_mono.asarray())
+    # v_mono = np.eye(2*int(config["N_int"]))
+    # t_start = n*int(config["T_off"])
+    # for i in range(t_start, t_start+n_per):
+    #     # print(i)
+    #     jacobian = mint.jac(0, Ad["data"][i], Ad["pars"])
+    #     v_mono = v_mono + dt_per*np.dot(jacobian, v_mono)
+
+    # evals, evecs = np.linalg.eig(v_mono)
+    idx = np.abs(evals).argsort()[::-1]
+    evals = evals[idx]
+    evecs = evecs[:, idx]
+
+    assert (np.abs(evals[0]-1.0) <
+            1e-1), "Neutral direction, D[0]="+str(evals[0])
+    v_tmp = evecs[:, 1]+evecs[:, 2]
+    v_tmp = v_tmp/np.linalg.norm(v_tmp)
+    return v_tmp[:Ad["N"]]+1.0j*v_tmp[Ad["N"]:]
+
+
+def perturb_fixed_point(Ad, n, config):
+    """Get the slow directions of the Matthews system."""
+    jacobian = mint.jac(0, Ad["data"][n*int(config["T_off"])], Ad["pars"])
+    evals, evecs = np.linalg.eig(jacobian)
+    idx = np.real(evals).argsort()[::-1]
+    evals = evals[idx]
+    evecs = evecs[:, idx]
+    assert np.real(
+        evals[0]-evals[1]) < 1e-6, "First two eigenvalues should be complex conjugate."
+    v_tmp = evecs[:, 0]+evecs[:, 1]
+    v_tmp = v_tmp/np.linalg.norm(v_tmp)
+    return v_tmp[:Ad["N"]]+1.0j*v_tmp[Ad["N"]:]
+
+
 class Dataset(torch.utils.data.Dataset):
     """ Simple dataloader for Matthews simulation data."""
 
@@ -57,19 +118,19 @@ class Dataset(torch.utils.data.Dataset):
         # Length of left and right part for which no dt information is available
         self.off_set = int((int(config["kernel_size"])-1)/2)
         self.use_fd_dt = config.getboolean("use_fd_dt")
-        self.config = config
         self.rescale_dx = float(config["rescale_dx"])
+        self.boundary_conditions = None
         self.use_param = config.getboolean("use_param")
         self.verbose = verbose
-        self.boundary_conditions = None
         self.include_0 = include_0
         self.x_data, self.delta_x, self.y_data, self.param = self.load_data(start_idx, end_idx)
         self.n_samples = self.x_data.shape[0]
 
         self.svd = TruncatedSVD(n_components=int(config["svd_modes"]), n_iter=42, random_state=42)
+        # self.svd.fit(self.x_data.reshape(self.n_samples, -1))
         self.svd.fit(self.x_data[::10].reshape(int(self.n_samples/10), -1))
+
         print('SVD variance explained: '+str(self.svd.explained_variance_ratio_.sum()))
-        # self.svd = None
 
     def load_data(self, start_idx, end_idx):
         """ Load and prepare data."""
@@ -96,23 +157,13 @@ class Dataset(torch.utils.data.Dataset):
 
         # Prepare data
         y_data = []
-        for idx, data in enumerate(x_data):
+        for idx, data_point in enumerate(x_data):
             if self.use_fd_dt:
-                if int(self.config["fd_dt_acc"]) == 2:
-                    # accuracy 2
-                    y_data.append((data[2:]-data[:-2])/(2*self.delta_t))
-                    x_data[idx] = data[1:-1]
-                    delta_x[idx] = delta_x[idx][1:-1]
-                    param[idx] = param[idx][1:-1]
-                elif int(self.config["fd_dt_acc"]) == 4:
-                    # accuracy 4
-                    y_data.append((data[:-4]-8*data[1:-3]+8 *
-                                   data[3:-1]-data[4:])/(12*self.delta_t))
-                    x_data[idx] = data[2:-2]
-                    delta_x[idx] = delta_x[idx][2:-2]
-                    param[idx] = param[idx][2:-2]
-                else:
-                    raise ValueError("Finite difference in time accuracy must be 2 or 4.")
+                y_data.append((data_point[1:] - data_point[:-1])/self.delta_t)
+            # If fd is attached to model, remove off set. TODO do fd here.
+            x_data[idx] = x_data[idx][:-1]
+            delta_x[idx] = delta_x[idx][:-1]
+            param[idx] = param[idx][:-1]
 
         x_data = np.stack((np.concatenate(x_data).real,
                            np.concatenate(x_data).imag), axis=-1)
@@ -148,8 +199,17 @@ def dmaps_transform(n_total, dataset, path, verbose=False):
     try:
         v_scaled = np.load(path+'/v_scaled.npy')
     except:
-        _, evecs = dmaps.dmaps(np.transpose(dataset.x_data[:, 0]+1.0j*dataset.x_data[:, 1]),
-                               alpha=1)
+        if 'sle_dmaps' in path:
+            _, evecs = dmaps.dmaps(np.transpose(dataset.x_data[:, 0]+1.0j*dataset.x_data[:, 1]),
+                                   eps=2e1, alpha=1)
+        elif 'sle_gamma' in path:
+            _, evecs = dmaps.dmaps(np.transpose(dataset.x_data[:, 0]+1.0j*dataset.x_data[:, 1]),
+                                   eps=1e1, alpha=1)
+        elif 'cgle' in path:
+            _, evecs = dmaps.dmaps(np.transpose(dataset.x_data[:, 0]+1.0j*dataset.x_data[:, 1]),
+                                   alpha=1)
+        else:
+            raise ValueError("System dmaps not implemented yet.")
 
         v_scaled = 2*(evecs[:, 1]-np.min(evecs[:, 1])) / \
             (np.max(evecs[:, 1])-np.min(evecs[:, 1]))-1.
@@ -196,3 +256,26 @@ def dmaps_transform(n_total, dataset, path, verbose=False):
             ax.set_ylabel('$t$')
             plt.savefig(path+'/tests/data_transformed.pdf')
             plt.show()
+
+
+class _RepeatSampler(object):
+    def __init__(self, sampler):
+        self.sampler = sampler
+
+    def __iter__(self):
+        while True:
+            yield from iter(self.sampler)
+
+
+class FastDataLoader(torch.utils.data.dataloader.DataLoader):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        object.__setattr__(self, 'batch_sampler', _RepeatSampler(self.batch_sampler))
+        self.iterator = super().__iter__()
+
+    def __len__(self):
+        return len(self.batch_sampler.sampler)
+
+    def __iter__(self):
+        for i in range(len(self)):
+            yield next(self.iterator)

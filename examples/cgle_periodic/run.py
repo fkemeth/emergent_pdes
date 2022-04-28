@@ -250,7 +250,8 @@ def main(config):
         tests.test_perturbation(path=config["GENERAL"]["save_dir"], idx=0)
         tests.test_dt(cint.f, path=config["GENERAL"]["save_dir"], idx=0)
         tests.test_dataset(dataset_train, path=config["GENERAL"]["save_dir"])
-        tests.test_svd(dataset_train, dataset_test, path=config["GENERAL"]["save_dir"])
+        if dataset.train.svd:
+            tests.test_svd(dataset_train, dataset_test, path=config["GENERAL"]["save_dir"])
 
     # Create Dataloader
     dataloader_train = torch.utils.data.DataLoader(
@@ -319,10 +320,10 @@ def main(config):
                                       idx=int(config["TRAINING"]["n_train"]), t_off=0,
                                       path=config["GENERAL"]["save_dir"])
 
-    make_plot_paper(config)
-
 
 if __name__ == "__main__":
     config = configparser.ConfigParser()
-    config.read('config/cgle_dmaps.cfg')
+    config.read('config/config.cfg')
     main(config)
+
+    make_plot_paper(config)
