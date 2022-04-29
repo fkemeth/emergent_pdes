@@ -136,6 +136,9 @@ def make_plot_paper(config):
     plt.subplots_adjust(top=0.96, wspace=0.35, right=0.95, bottom=0.09, hspace=0.31, left=0.1)
     plt.show()
 
+    np.save('Source_Data_Figure_2f.npy', prediction)
+    np.save('Source_Data_Figure_2.npy', data)
+
 
 def main(config):
     """Integrate system and train model."""
@@ -233,7 +236,7 @@ def main(config):
         dataset_test, model, path=config["GENERAL"]["fig_path"], epoch=None)
 
     # Visualize the predictions of the model
-    tests.visualize_predictions(dataset_test, model, path=config["GENERAL"]["fig_path"])
+    # tests.visualize_predictions(dataset_test, model, path=config["GENERAL"]["fig_path"])
 
 
 if __name__ == "__main__":

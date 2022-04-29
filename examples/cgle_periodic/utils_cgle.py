@@ -67,9 +67,61 @@ class Dataset(torch.utils.data.Dataset):
         self.n_samples = self.x_data.shape[0]
 
         self.svd = TruncatedSVD(n_components=int(config["svd_modes"]), n_iter=42, random_state=42)
+        print(self.n_samples)
         self.svd.fit(self.x_data[::10].reshape(int(self.n_samples/10), -1))
         print('SVD variance explained: '+str(self.svd.explained_variance_ratio_.sum()))
         # self.svd = None
+
+    # def load_data(self, start_idx, end_idx):
+    #     """ Load and prepare data."""
+    #     x_data = []
+    #     delta_x = []
+    #     param = []
+    #     for idx in range(start_idx, end_idx):
+    #         if self.include_0:
+    #             p_list = [0, -1, 1]
+    #         else:
+    #             p_list = [-1, 1]
+    #         for p in p_list:
+    #             pkl_file = open(self.save_dir+'/run'+str(idx) + '_p_'+str(p)+'.pkl', 'rb')
+    #             data = pickle.load(pkl_file)
+    #             pkl_file.close()
+    #             x_data.append(data["data"])
+    #             delta_x.append(np.repeat(data["L"]/data["N"], len(data["data"])))
+    #             param.append(np.repeat(data["param"], len(data["data"])))
+
+    #     # Delta t for temporal finite difference estimation
+    #     self.delta_t = (data["tmax"]-data["tmin"])/data["T"]
+    #     if self.verbose:
+    #         print('Using delta_t of '+str(self.delta_t))
+
+    #     # Prepare data
+    #     y_data = []
+    #     for idx, data in enumerate(x_data):
+    #         if self.use_fd_dt:
+    #             if int(self.config["fd_dt_acc"]) == 2:
+    #                 # accuracy 2
+    #                 y_data.append((data[2:]-data[:-2])/(2*self.delta_t))
+    #                 x_data[idx] = data[1:-1]
+    #                 delta_x[idx] = delta_x[idx][1:-1]
+    #                 param[idx] = param[idx][1:-1]
+    #             elif int(self.config["fd_dt_acc"]) == 4:
+    #                 # accuracy 4
+    #                 y_data.append((data[:-4]-8*data[1:-3]+8 *
+    #                                data[3:-1]-data[4:])/(12*self.delta_t))
+    #                 x_data[idx] = data[2:-2]
+    #                 delta_x[idx] = delta_x[idx][2:-2]
+    #                 param[idx] = param[idx][2:-2]
+    #             else:
+    #                 raise ValueError("Finite difference in time accuracy must be 2 or 4.")
+
+    #     x_data = np.stack((np.concatenate(x_data).real,
+    #                        np.concatenate(x_data).imag), axis=-1)
+    #     y_data = np.stack((np.concatenate(y_data).real,
+    #                        np.concatenate(y_data).imag), axis=-1)
+    #     delta_x = np.concatenate(delta_x, axis=0)*self.rescale_dx
+    #     param = (np.concatenate(param, axis=0) - 1.75)/0.02
+    #     return np.transpose(x_data, (0, 2, 1)), delta_x, np.transpose(y_data, (0, 2, 1)), param
 
     def load_data(self, start_idx, end_idx):
         """ Load and prepare data."""
@@ -96,23 +148,13 @@ class Dataset(torch.utils.data.Dataset):
 
         # Prepare data
         y_data = []
-        for idx, data in enumerate(x_data):
+        for idx, data_point in enumerate(x_data):
             if self.use_fd_dt:
-                if int(self.config["fd_dt_acc"]) == 2:
-                    # accuracy 2
-                    y_data.append((data[2:]-data[:-2])/(2*self.delta_t))
-                    x_data[idx] = data[1:-1]
-                    delta_x[idx] = delta_x[idx][1:-1]
-                    param[idx] = param[idx][1:-1]
-                elif int(self.config["fd_dt_acc"]) == 4:
-                    # accuracy 4
-                    y_data.append((data[:-4]-8*data[1:-3]+8 *
-                                   data[3:-1]-data[4:])/(12*self.delta_t))
-                    x_data[idx] = data[2:-2]
-                    delta_x[idx] = delta_x[idx][2:-2]
-                    param[idx] = param[idx][2:-2]
-                else:
-                    raise ValueError("Finite difference in time accuracy must be 2 or 4.")
+                y_data.append((data_point[1:] - data_point[:-1])/self.delta_t)
+            # If fd is attached to model, remove off set. TODO do fd here.
+            x_data[idx] = x_data[idx][:-1]
+            delta_x[idx] = delta_x[idx][:-1]
+            param[idx] = param[idx][:-1]
 
         x_data = np.stack((np.concatenate(x_data).real,
                            np.concatenate(x_data).imag), axis=-1)
