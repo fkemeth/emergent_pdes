@@ -8,6 +8,8 @@ import configparser
 import numpy as np
 import matplotlib.pyplot as plt
 
+import pandas as pd
+
 import tqdm
 import torch
 import lpde
@@ -19,6 +21,10 @@ import tests
 import int.matthews as mint
 
 torch.set_default_dtype(torch.float32)
+
+POINTS_W = 397.48499
+
+plt.set_cmap('plasma')
 
 
 def integrate_system(config, n, path, verbose=False):
@@ -143,6 +149,97 @@ def integrate_system_gamma(config, n, path, verbose=False):
             output.close()
 
 
+def make_plot_paper(config):
+    """Plot SLE learning results."""
+
+    dataset_train = utils.Dataset(0, int(config["TRAINING"]["n_train"]),
+                                  config["MODEL"],
+                                  path=config["GENERAL"]["save_dir"])
+
+    dataset = utils.Dataset(int(config["TRAINING"]["n_train"]) +
+                            int(config["TRAINING"]["n_test"])-1,
+                            int(config["TRAINING"]["n_train"]) +
+                            int(config["TRAINING"]["n_test"]),
+                            config["MODEL"],
+                            path=config["GENERAL"]["save_dir"])
+
+    dataloader = torch.utils.data.DataLoader(
+        dataset, batch_size=int(config["TRAINING"]['batch_size']), shuffle=True,
+        num_workers=int(config["TRAINING"]['num_workers']), pin_memory=True)
+
+    network = lpde.network.Network(config["MODEL"], n_vars=2)
+
+    model = lpde.model.Model(dataloader, dataloader, network, config["TRAINING"],
+                             path=config["GENERAL"]["save_dir"]+'/')
+    model.load_network('test.model')
+
+    limit_amps_true = []
+    limit_amps_learned = []
+    gamma_list = []
+    for i in range(int(config["TRAINING"]["n_train"])):
+        print(i)
+        dataset = utils.Dataset(i, i+1, config["MODEL"],
+                                path=config["GENERAL"]["save_dir"])
+
+        prediction = model.integrate_svd(dataset, dataset_train.svd, 0, 20000-1)
+        if i == 0:
+            prediction0 = model.integrate_svd(dataset, dataset_train.svd, 0, 20000-1)
+
+        limit_amps_true.append(
+            np.mean(np.abs(dataset.x_data[20000-1, 0]+1.0j*dataset.x_data[20000-1, 1])))
+        limit_amps_learned.append(np.mean(np.abs(prediction[-1, 0]+1.0j*prediction[-1, 1])))
+        gamma_list.append(dataset.param[0]*0.02+1.75)
+
+    pkl_file = open(config["GENERAL"]["save_dir"]+'/dat/run' +
+                    str(int(config["TRAINING"]["n_train"])+int(config["TRAINING"]["n_test"])-1) + '_p_'+str(-1)+'.pkl', 'rb')
+    data_unperturbed = pickle.load(pkl_file)
+    pkl_file.close()
+
+    v_scaled = np.load(config["GENERAL"]["save_dir"]+'/v_scaled.npy')
+
+    df_data = {'gamma': gamma_list,
+               'limit_amps_true': limit_amps_true,
+               'limit_amps_predicted': limit_amps_learned}
+    df = pd.DataFrame(df_data)
+    df.to_excel(r'Source_Data_Figure_4.xlsx',
+                sheet_name='Figure 4', index=False)
+
+    np.save('Source_Data_Figure_4_Inset_1.npy', prediction[::10, 0])
+    np.save('Source_Data_Figure_4_Inset_2.npy', prediction0[::10, 0])
+
+    fig = plt.figure(figsize=(POINTS_W/72, 0.66*POINTS_W/72))
+    ax1 = fig.add_subplot(111)
+    scat1 = ax1.scatter(gamma_list, limit_amps_true, label='true')
+    scat2 = ax1.scatter(gamma_list, limit_amps_learned, label='learned',
+                        marker='+')
+    ax1.set_xlabel(r'$\gamma$', labelpad=-2)
+    ax1.set_ylabel(r'$\langle | W_{\mbox{limit}}|\rangle$', labelpad=-1)
+    ax1.set_ylim((-0.005, 0.18))
+    ax1.set_xlim((min(gamma_list)-0.002, max(gamma_list)+0.002))
+    axins1 = ax1.inset_axes([0.67, 0.33, 0.32, 0.42])
+    axins1.pcolor(np.linspace(-1, 1, data_unperturbed["N"]), data_unperturbed["tt"][::10],
+                  prediction[::10, 0], rasterized=True)
+    phi_arr = np.linspace(-1, 1, data_unperturbed["N"])
+    axins1.axvline(x=(phi_arr[3]+phi_arr[4])/2, ymin=0, ymax=1, color='white', lw=1)
+    axins1.axvline(x=(phi_arr[-4]+phi_arr[-5])/2, ymin=0, ymax=1, color='white', lw=1)
+    axins1.set_xlabel(r'$\phi_1$')
+    axins1.set_ylabel(r'$t$', labelpad=-2)
+    axins2 = ax1.inset_axes([0.24, 0.55, 0.32, 0.42])
+    axins2.pcolor(np.linspace(-1, 1, data_unperturbed["N"]), data_unperturbed["tt"][::10],
+                  prediction0[::10, 0], rasterized=True)
+    axins2.axvline(x=(phi_arr[3]+phi_arr[4])/2, ymin=0, ymax=1, color='white', lw=1)
+    axins2.axvline(x=(phi_arr[-4]+phi_arr[-5])/2, ymin=0, ymax=1, color='white', lw=1)
+    axins2.set_xlabel(r'$\phi_1$')
+    axins2.set_ylabel(r'$t$', labelpad=-2)
+    plt.legend(fontsize=8)
+    ax1.annotate("", xy=(1.7995, 0.001), xytext=(1.79, 0.05),
+                 arrowprops=dict(arrowstyle="->"))
+    ax1.annotate("", xy=(1.7005, 0.117), xytext=(1.719, 0.12),
+                 arrowprops=dict(arrowstyle="->"))
+    plt.subplots_adjust(top=0.94, wspace=0.45, right=0.98, bottom=0.1, hspace=0.3, left=0.15)
+    plt.show()
+
+
 def main(config):
     """Integrate system and train model."""
 
@@ -253,3 +350,5 @@ if __name__ == "__main__":
     config = configparser.ConfigParser()
     config.read('config/config.cfg')
     main(config)
+
+    make_plot_paper(config)

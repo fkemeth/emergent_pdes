@@ -120,6 +120,7 @@ class Dataset(torch.utils.data.Dataset):
         self.use_fd_dt = config.getboolean("use_fd_dt")
         self.rescale_dx = float(config["rescale_dx"])
         self.use_param = config.getboolean("use_param")
+        self.boundary_conditions = None
         self.verbose = verbose
         self.include_0 = include_0
         self.x_data, self.delta_x, self.y_data, self.param = self.load_data(start_idx, end_idx)
@@ -158,8 +159,7 @@ class Dataset(torch.utils.data.Dataset):
         y_data = []
         for idx, data_point in enumerate(x_data):
             if self.use_fd_dt:
-                y_data.append((data_point[1:, self.off_set:-self.off_set] -
-                               data_point[:-1, self.off_set:-self.off_set])/self.delta_t)
+                y_data.append((data_point[1:] - data_point[:-1])/self.delta_t)
             # If fd is attached to model, remove off set. TODO do fd here.
             x_data[idx] = x_data[idx][:-1]
             delta_x[idx] = delta_x[idx][:-1]
@@ -189,7 +189,7 @@ class Dataset(torch.utils.data.Dataset):
         _x = torch.tensor(self.x_data[index], dtype=torch.get_default_dtype())
         _dx = torch.tensor(self.delta_x[index], dtype=torch.get_default_dtype())
         _y = torch.tensor(self.y_data[index], dtype=torch.get_default_dtype())
-        _p = torch.tensor(self.param[index], dtype=torch.get_default_dtype())
+        _p = torch.tensor(self.param[index], dtype=torch.get_default_dtype()).unsqueeze(-1)
         return _x, _dx, _y, _p
 
 
