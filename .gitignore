@@ -6,6 +6,7 @@ fig/
 *.pdf
 *.npy
 *.model
+*.xlsx
 
 *__pycache__/
 

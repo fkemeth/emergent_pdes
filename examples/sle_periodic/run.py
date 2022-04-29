@@ -8,6 +8,8 @@ import configparser
 import numpy as np
 import matplotlib.pyplot as plt
 
+import pandas as pd
+
 import tqdm
 import torch
 import lpde
@@ -196,6 +198,22 @@ def make_plot_paper(config):
         data_unperturbed["data"].real, data_unperturbed["data"].imag, axis=1))
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
+    np.save('Source_Data_Figure_3a.npy', data_unperturbed["data"][:-1:10])
+    np.save('Source_Data_Figure_3b.npy', prediction[::10, 0])
+
+    df_data = {'t': data_unperturbed["tt"],
+               'd_true': np.min(dists_neg, axis=1)[:-1],
+               'd_learned': np.min(dists_learned, axis=1)}
+    df = pd.DataFrame(df_data)
+    df.to_excel(r'Source_Data_Figure_3c.xlsx',
+                sheet_name='Figure 3c', index=False)
+
+    df_data = {'omega': data_unperturbed["omega"],
+               'phi_1': data_unperturbed["phi"]}
+    df = pd.DataFrame(df_data)
+    df.to_excel(r'Source_Data_Figure_3d.xlsx',
+                sheet_name='Figure 3d', index=False)
+
     fig = plt.figure(figsize=(POINTS_W/72, 2*0.33*POINTS_W/72))
     ax1 = fig.add_subplot(221)
     pl1 = ax1.pcolor(np.linspace(-1, 1, data_unperturbed["N"]), data_unperturbed["tt"][::10],
@@ -228,6 +246,99 @@ def make_plot_paper(config):
     ax1.text(-0.28, 1., r'$\mathbf{a}$', transform=ax1.transAxes, weight='bold',
              fontsize=plt.rcParams['axes.titlesize'], fontweight=plt.rcParams['axes.titleweight'])
     ax2.text(-0.28,  1., r'$\mathbf{b}$', transform=ax2.transAxes, weight='bold', fontsize=12)
+    ax3.text(-0.22, 1., r'$\mathbf{c}$', transform=ax3.transAxes, weight='bold', fontsize=12)
+    ax4.text(-0.22,  1., r'$\mathbf{d}$', transform=ax4.transAxes, weight='bold', fontsize=12)
+    plt.show()
+
+
+def make_plot_appendix():
+    """Plot SLE data creation."""
+    N = 128
+    pars = {"gamma": 1.7, "K": 1.2}
+    gamma_off = 0.2
+    pars["omega"] = np.linspace(-pars["gamma"], pars["gamma"], N)+gamma_off
+
+    Ad = mint.integrate(pars=pars, dt=5e-4, N=N, T=2000, tmin=2000, tmax=2100, ic='felix')
+
+    def get_period(a):
+        """Calculate local minimal and return interval between first and second."""
+        minima = np.where(np.r_[True, a[1:] < a[:-1]] & np.r_[a[:-1] < a[1:], True] &
+                          np.r_[True, a[1:] < 1e-2])[0]
+        return minima[1]-minima[0]
+
+    n = 0
+    T_off = 0
+    T_per = get_period(np.linalg.norm(Ad["data"][int(n*T_off):] -
+                                      Ad["data"][int(n*T_off), :], axis=1))
+    print("Period is "+str(T_per))
+    dt_per = (Ad["tmax"]-Ad["tmin"])/Ad["T"]
+
+    print("Calculating monodromy matrix.")
+    V_mono = np.eye(2*N)
+    T_start = n*T_off
+    for i in range(T_start, T_start+T_per):
+        # print(i)
+        J = mint.jac(0, Ad["data"][i], Ad["pars"])
+        V_mono = V_mono + dt_per*np.dot(J, V_mono)
+
+    D, V = np.linalg.eig(V_mono)
+    idx = np.abs(D).argsort()[::-1]
+    D = D[idx]
+    V = V[:, idx]
+
+    V_tmp = V[:, 1]+V[:, 2]
+    V_tmp = V_tmp/np.linalg.norm(V_tmp)
+
+    V_tmp2 = V[:, 3]+V[:, 4]
+    V_tmp2 = V_tmp2/np.linalg.norm(V_tmp2)
+
+    V_tmp3 = V[:, 5]+V[:, 6]
+    V_tmp3 = V_tmp3/np.linalg.norm(V_tmp3)
+
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+
+    df_data = {'omega': pars["omega"], 'multipliers': np.abs(D[:N]),
+               'v1_real': V_tmp[:N].real,
+               'v1_imag': V_tmp[N:].real,
+               'v2_real': V_tmp2[:N].real,
+               'v2_imag': V_tmp2[N:].real,
+               'v3_real': V_tmp3[:N].real,
+               'v3_imag': V_tmp3[N:].real}
+    df = pd.DataFrame(df_data)
+    df.to_excel(r'Source_Data_Figure_7.xlsx',
+                sheet_name='Figure 7', index=False)
+
+    fig = plt.figure(figsize=(POINTS_W/72, 2*0.33*POINTS_W/72))
+    ax = fig.add_subplot(221)
+    ax.scatter(np.arange(1, 21), np.abs(D[:20]))
+    ax.scatter(np.arange(2, 4), np.abs(D[1:3]), c=colors[1])
+    ax.scatter(np.arange(4, 6), np.abs(D[3:5]), c=colors[2])
+    ax.scatter(np.arange(6, 8), np.abs(D[5:7]), c=colors[3])
+    ax.set_ylabel(r'$|\lambda_i|$', labelpad=0)
+    ax.set_xlabel(r'$i$', labelpad=-3)
+    ax.set_yscale('log')
+    ax2 = fig.add_subplot(222)
+    ax2.plot(pars["omega"], V_tmp[:N], color=colors[1], label=r'Re $\bf{v}_1$')
+    ax2.plot(pars["omega"], V_tmp[N:], color=colors[1], alpha=0.5,
+             label=r'Im $\bf{v}_1$')
+    ax2.set_xlabel(r'$\omega$', labelpad=-5)
+    plt.legend()
+    plt.subplots_adjust(top=0.98, wspace=0.3, right=0.99, bottom=0.17, left=0.08)
+    ax3 = fig.add_subplot(223)
+    ax3.plot(pars["omega"], V_tmp2[:N], color=colors[2], label=r'Re $\bf{v}_2$')
+    ax3.plot(pars["omega"], V_tmp2[N:], color=colors[2], alpha=0.5,  # linestyle='dashed',
+             label=r'Im $\bf{v}_2$')
+    ax3.set_xlabel(r'$\omega$', labelpad=-3)
+    plt.legend()
+    ax4 = fig.add_subplot(224)
+    ax4.plot(pars["omega"], V_tmp3[:N], color=colors[3], label=r'Re $\bf{v}_3$')
+    ax4.plot(pars["omega"], V_tmp3[N:], color=colors[3], alpha=0.5,  # linestyle='dashed',
+             label=r'Im $\bf{v}_3$')
+    ax4.set_xlabel(r'$\omega$', labelpad=-5)
+    plt.legend()
+    plt.subplots_adjust(top=0.96, wspace=0.3, right=0.99, bottom=0.1, left=0.1)
+    ax.text(-0.22, 1., r'$\mathbf{a}$', transform=ax.transAxes, weight='bold', fontsize=12)
+    ax2.text(-0.22,  1., r'$\mathbf{b}$', transform=ax2.transAxes, weight='bold', fontsize=12)
     ax3.text(-0.22, 1., r'$\mathbf{c}$', transform=ax3.transAxes, weight='bold', fontsize=12)
     ax4.text(-0.22,  1., r'$\mathbf{d}$', transform=ax4.transAxes, weight='bold', fontsize=12)
     plt.show()
@@ -345,3 +456,5 @@ if __name__ == "__main__":
     main(config)
 
     make_plot_paper(config)
+
+    make_plot_appendix()
