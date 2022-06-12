@@ -13,7 +13,7 @@ def visualize_derivatives(network, dataset, path, idx=10):
 
     input_x, dx, _ = dataset[idx]
 
-    padding = network.off_set
+    padding = network.get_off_set()
     if dataset.boundary_conditions == 'periodic':
         input_x = F.pad(input_x.unsqueeze(0), (padding, padding), mode='circular')[0]
     elif dataset.boundary_conditions == 'no-flux':

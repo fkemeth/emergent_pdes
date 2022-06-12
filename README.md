@@ -49,6 +49,7 @@ Please cite
 "Learning emergent partial differential equations
 in a learned emergent space"
 F.P. Kemeth et al.
-(https://arxiv.org/abs/2012.12738)
+*Nature Communications* 13, Article number: 3318 (2022)
+(https://www.nature.com/articles/s41467-022-30628-6)
 
 if you use this package for publications.

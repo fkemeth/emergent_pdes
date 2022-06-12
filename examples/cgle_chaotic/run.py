@@ -105,8 +105,8 @@ def make_plot_paper(config):
     # Create the network architecture
     network = lpde.network.Network(config["MODEL"], n_vars=dataset_train.x_data.shape[1])
 
-    model = lpde.model.Model(dataloader_train, dataloader_test, network,
-                             config["TRAINING"], path=config["GENERAL"]["save_dir"])
+    model = lpde.model.Model(dataloader_train, dataloader_test, network, config["TRAINING"])
+
     model.load_network(config["SYSTEM"]["boundary_conditions"]+'test.model')
 
     num_pars = sum(p.numel() for p in model.net.parameters() if p.requires_grad)
@@ -189,8 +189,7 @@ def main(config):
 
     # Create a model wrapper around the network architecture
     # Contains functions for training
-    model = lpde.model.Model(dataloader_train, dataloader_test, network,
-                             config["TRAINING"], path=config["GENERAL"]["save_dir"])
+    model = lpde.model.Model(dataloader_train, dataloader_test, network, config["TRAINING"])
 
     logger = SummaryWriter(config["GENERAL"]["save_dir"]+'/log/')
 

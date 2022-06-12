@@ -143,8 +143,7 @@ def make_plot_paper(config):
 
     network = lpde.network.Network(config["MODEL"], n_vars=2)
 
-    model = lpde.model.Model(dataloader_train, dataloader_test, network, config["TRAINING"],
-                             path=config["GENERAL"]["save_dir"]+'/')
+    model = lpde.model.Model(dataloader_train, dataloader_test, network, config["TRAINING"])
 
     model.load_network('test.model')
     num_pars = sum(p.numel() for p in model.net.parameters() if p.requires_grad)
@@ -273,8 +272,7 @@ def main(config):
                           torch.tensor([delta_x], dtype=torch.get_default_dtype()),
                           path=config["GENERAL"]["save_dir"])
 
-    model = lpde.model.Model(dataloader_train, dataloader_test, network, config["TRAINING"],
-                             path=config["GENERAL"]["save_dir"]+'/')
+    model = lpde.model.Model(dataloader_train, dataloader_test, network, config["TRAINING"])
 
     if not os.path.exists(config["GENERAL"]["save_dir"]+'/log'):
         os.makedirs(config["GENERAL"]["save_dir"]+'/log')
@@ -304,8 +302,7 @@ def main(config):
         model.save_network('test.model')
 
     if verbose:
-        model = lpde.model.Model(dataloader_train, dataloader_test, network, config["TRAINING"],
-                                 path=config["GENERAL"]["save_dir"]+'/')
+        model = lpde.model.Model(dataloader_train, dataloader_test, network, config["TRAINING"])
         model.load_network('test.model')
         tests.test_learned_dt(model, dataset_test, cint.f,
                               path=config["GENERAL"]["save_dir"], idx=0)
