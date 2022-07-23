@@ -9,7 +9,8 @@ import findiff
 
 def visualize_derivatives(network, dataset, path, idx=10):
     """Plot the calculated derivatives."""
-    xx = float(dataset.config["L"])*np.linspace(0, 1, num=int(dataset.config["N"]), endpoint=False)
+    xx = dataset.config.getfloat("length") * \
+        np.linspace(0, 1, num=dataset.config.getint("n_grid_points"), endpoint=False)
 
     input_x, dx, _ = dataset[idx]
 
@@ -20,11 +21,11 @@ def visualize_derivatives(network, dataset, path, idx=10):
         input_x = F.pad(input_x.unsqueeze(0), (padding, padding), mode='reflect')[0]
 
     derivs = network.calc_derivs(input_x.unsqueeze(0).to(network.device),
-                                 dx.unsqueeze(0).to(network.device)).cpu().numpy()[0].T
+                                 dx.unsqueeze(0).to(network.device)).detach().cpu().numpy()[0].T
 
     input_x, dx, _ = dataset[idx]
 
-    padding = int(int(dataset.config["N"])/2)
+    padding = int(dataset.config.getint("n_grid_points")/2)
 
     if dataset.boundary_conditions == 'periodic':
         input_x = F.pad(input_x.unsqueeze(0), (padding, padding), mode='circular')[0]
@@ -46,16 +47,22 @@ def visualize_derivatives(network, dataset, path, idx=10):
 
 
 def visualize_dynamics(dataset, path):
-    xx = float(dataset.config["L"])*np.linspace(0, 1, num=int(dataset.config["N"]), endpoint=False)
-    tt = np.linspace(0, int(dataset.config["T"])*dataset.delta_t, int(dataset.config["T"])+1)
+    xx = dataset.config.getfloat("length") * \
+        np.linspace(0, 1, num=dataset.config.getint("n_grid_points"), endpoint=False)
+
+    tt = np.linspace(0,
+                     dataset.config.getint("n_time_steps")*dataset.delta_t,
+                     dataset.config.getint("n_time_steps")+1)
+
     if dataset.use_fd_dt:
-        tt = tt[:-int(dataset.config["fd_dt_acc"])]
-        trajectory = dataset.x_data[:int(dataset.config["T"])-int(dataset.config["fd_dt_acc"])+1, 0]
-        dudt_trajectory = dataset.y_data[:int(
-            dataset.config["T"])-int(dataset.config["fd_dt_acc"])+1, 0]
+        tt = tt[:-dataset.config.getint("fd_dt_acc")]
+        trajectory = dataset.x_data[
+            :dataset.config.getint("n_time_steps")-dataset.config.getint("fd_dt_acc")+1, 0]
+        dudt_trajectory = dataset.y_data[
+            :dataset.config.getint("n_time_steps")-dataset.config.getint("fd_dt_acc")+1, 0]
     else:
-        trajectory = dataset.x_data[:int(dataset.config["T"])+1, 0]
-        dudt_trajectory = dataset.y_data[:int(dataset.config["T"])+1, 0]
+        trajectory = dataset.x_data[:dataset.config.getint("n_time_steps")+1, 0]
+        dudt_trajectory = dataset.y_data[:dataset.config.getint("n_time_steps")+1, 0]
 
     fig = plt.figure()
     ax = fig.add_subplot(111)
@@ -77,12 +84,14 @@ def visualize_dynamics(dataset, path):
 
 
 def visualize_learned_dudt(dataset, model, path, epoch=None, idx=10):
-    xx = float(dataset.config["L"])*np.linspace(0, 1, num=int(dataset.config["N"]), endpoint=False)
+    xx = dataset.config.getfloat("length") * \
+        np.linspace(0, 1, num=dataset.config.getint("n_grid_points"), endpoint=False)
 
     fig = plt.figure()
     ax = fig.add_subplot(111)
     ax.plot(xx, dataset.y_data[idx, 0], label='Finite difference du/dt')
-    learned_dt = model.dfdt(0, dataset.x_data[idx], dataset.delta_x[idx])
+    spatial_dimensions = dataset.x_data[idx].shape[1:]
+    learned_dt = model.dfdt(0, dataset.x_data[idx], dataset.delta_x[idx], spatial_dimensions)
     ax.plot(xx, np.reshape(learned_dt, (model.net.n_vars, -1))[0], label='Learned du/dt')
     ax.set_xlabel(r'x')
     ax.set_ylabel(r'd/dt')
@@ -92,45 +101,29 @@ def visualize_learned_dudt(dataset, model, path, epoch=None, idx=10):
 
 
 def visualize_predictions(dataset, model, path):
-    xx = float(dataset.config["L"])*np.linspace(0, 1, num=int(dataset.config["N"]), endpoint=False)
-    if "L_orig" in dataset.config.keys():
-        xx_orig = float(dataset.config["L_orig"]) * \
-            np.linspace(0, 1, num=int(dataset.config["N"]), endpoint=False)
-    else:
-        x_orig = xx
-    tt = np.linspace(0, int(dataset.config["T"]) *
-                     dataset.delta_t, int(dataset.config["T"])+1)
-
-    if dataset.use_fd_dt:
-        tt = tt[:-int(dataset.config["fd_dt_acc"])]
-        trajectory = dataset.x_data[:int(dataset.config["T"])-int(dataset.config["fd_dt_acc"])+1, 0]
-        dudt_trajectory = dataset.y_data[:int(
-            dataset.config["T"])-int(dataset.config["fd_dt_acc"])+1, 0]
-    else:
-        trajectory = dataset.x_data[:int(dataset.config["T"])+1, 0]
-        dudt_trajectory = dataset.y_data[:int(dataset.config["T"])+1, 0]
+    t_eval = np.linspace(0,
+                         dataset.config.getfloat('tmax')-dataset.config.getfloat('tmin'),
+                         dataset.config.getint('n_time_steps')+1, endpoint=True)
 
     initial_condition, delta_x, _ = dataset[0]
 
-    _, prediction = model.integrate(initial_condition.detach().numpy(),
-                                    [delta_x.detach().numpy()], tt)
+    _, predictions = model.integrate(initial_condition.detach().numpy(),
+                                     [delta_x.detach().numpy()],
+                                     t_eval=t_eval)
 
     fig = plt.figure(figsize=(9, 4))
     ax1 = fig.add_subplot(121)
-    pl1 = ax1.pcolor(xx_orig, tt, trajectory, rasterized=True)
-    ax1.set_xlabel(r'x')
-    ax1.set_ylabel(r't')
-    plt.title('True')
-    plt.colorbar(pl1, label='u')
+    pl1 = ax1.pcolor(dataset.x_data[::5, 0], rasterized=True)
+    ax1.set_xlabel(r'$x_i$')
+    ax1.set_ylabel(r'$t_i$')
+    plt.title('test data')
+    plt.colorbar(pl1, label='$u$')
     ax2 = fig.add_subplot(122)
-    pl2 = ax2.pcolor(xx, tt, prediction[:, 0], rasterized=True)
-    if "L_orig" in dataset.config.keys():
-        ax2.set_xlabel(r'$\tilde{x}$')
-    else:
-        ax2.set_xlabel(r'x')
-    ax2.set_ylabel(r't')
-    plt.title('Predictions')
-    plt.colorbar(pl2, label='u')
+    pl2 = ax2.pcolor(predictions[::5, 0], rasterized=True)
+    ax2.set_xlabel(r'$x_i$')
+    ax2.set_ylabel(r'$t_i$')
+    plt.title('prediction')
+    plt.colorbar(pl2, label='$u$')
     plt.subplots_adjust(wspace=0.35)
     plt.savefig(path+'space_time_predictions.pdf')
     plt.show()

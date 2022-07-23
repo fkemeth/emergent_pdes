@@ -1,5 +1,21 @@
-import os
-import shutil
+"""
+Copyright © 2022 Felix P. Kemeth
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+and associated documentation files (the “Software”), to deal in the Software without
+restriction, including without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+"""
 import configparser
 
 import tqdm
@@ -9,13 +25,11 @@ import lpde
 from torch.utils.tensorboard import SummaryWriter
 
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 
 import tests
 
-from dataset import Dataset
-from utils import dmaps_transform
+from dataset import CGLEDataset
 
 POINTS_W = 397.48499
 
@@ -142,44 +156,22 @@ def make_plot_paper(config):
 
 def main(config):
     """Integrate system and train model."""
-
-    if config["TRAINING"].getboolean("dtype64"):
-        torch.set_default_dtype(torch.float64)
-
     verbose = config["GENERAL"]["verbose"]
 
     # Create Dataset
-    dataset_train = Dataset(config["SYSTEM"], int(config["SYSTEM"]["n_train"]),
-                            downsample=config["TRAINING"].getboolean('downsample'))
-    dataset_test = Dataset(config["SYSTEM"], int(config["SYSTEM"]["n_test"]),
-                           start_idx=int(config["SYSTEM"]["n_train"]))
+    dataset_train = CGLEDataset(config["SYSTEM"])
+    dataset_test = CGLEDataset(config["TEST"])
 
-    if verbose:
-        tests.visualize_dynamics(dataset_train, path=config["GENERAL"]["fig_path"])
-        # tests.visualize_dudt(dataset_train, path=config["GENERAL"]["fig_path"])
-
-    # Create emergent space data
-    if config["GENERAL"].getboolean("use_dmaps") and not config["SYSTEM"].getboolean("load_data"):
-        dmaps_transform(int(config["SYSTEM"]["n_train"]) +
-                        int(config["SYSTEM"]["n_test"]), dataset_train)
-        config.set("SYSTEM", "load_data", "True")
-        config.set("SYSTEM", "L_orig", config["SYSTEM"]["L"])
-        config.set("SYSTEM", "L", str(2*np.pi))
-        # config["SYSTEM"]["load_data"] = True
-        # config["SYSTEM"]["L_orig"] = float(config["SYSTEM"]["L"])
-        # config["SYSTEM"]["L"] = 2*np.pi
-        dataset_train = Dataset(config["SYSTEM"], int(config["SYSTEM"]["n_train"]),
-                                downsample=config["TRAINING"].getboolean('downsample'))
-        dataset_test = Dataset(config["SYSTEM"], int(config["SYSTEM"]["n_test"]),
-                               start_idx=int(config["SYSTEM"]["n_train"]))
+    # Emergent space embedding
+    emergent_space_coordinate = dataset_train.extract_emergent_space_coordinate()
+    dataset_train.emergent_space_embedding(emergent_space_coordinate)
+    dataset_test.emergent_space_embedding(emergent_space_coordinate)
 
     # Create Dataloader
     dataloader_train = torch.utils.data.DataLoader(
-        dataset_train, batch_size=int(config["TRAINING"]['batch_size']), shuffle=True,
-        num_workers=int(config["TRAINING"]['num_workers']), pin_memory=True)
+        dataset_train, batch_size=config["TRAINING"].getint('batch_size'), shuffle=True)
     dataloader_test = torch.utils.data.DataLoader(
-        dataset_test, batch_size=int(config["TRAINING"]['batch_size']), shuffle=False,
-        num_workers=int(config["TRAINING"]['num_workers']), pin_memory=True)
+        dataset_test, batch_size=config["TRAINING"].getint('batch_size'), shuffle=False)
 
     # Create the network architecture
     network = lpde.network.Network(config["MODEL"], n_vars=dataset_train.x_data.shape[1])
@@ -193,8 +185,8 @@ def main(config):
 
     logger = SummaryWriter(config["GENERAL"]["save_dir"]+'/log/')
 
-    progress_bar = tqdm.tqdm(range(0, int(config["TRAINING"]['epochs'])),
-                             total=int(config["TRAINING"]['epochs']),
+    progress_bar = tqdm.tqdm(range(0, config["TRAINING"].getint('epochs')),
+                             total=config["TRAINING"].getint('epochs'),
                              leave=True, desc=lpde.utils.progress(0, 0))
 
     # Load an already trained model if desired
@@ -235,12 +227,12 @@ def main(config):
         dataset_test, model, path=config["GENERAL"]["fig_path"], epoch=None)
 
     # Visualize the predictions of the model
-    # tests.visualize_predictions(dataset_test, model, path=config["GENERAL"]["fig_path"])
+    tests.visualize_predictions(dataset_test, model, path=config["GENERAL"]["fig_path"])
 
 
 if __name__ == "__main__":
     config = configparser.ConfigParser()
-    config.read('config/config.cfg')
+    config.read('config.cfg')
     main(config)
 
     make_plot_paper(config)
