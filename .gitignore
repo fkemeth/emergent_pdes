@@ -8,8 +8,12 @@ fig/
 *.model
 *.xlsx
 *.png
+*.ipynb
+*.tfevents.*
+*.pkl
 
 *__pycache__/
 
 *cgle_dmaps/
 *log/
+*data/
