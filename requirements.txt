@@ -2,12 +2,11 @@ argcomplete==2.0.0
 findiff==0.8.9
 lpde==0.0.1
 matplotlib==3.2.2
-mayavi==4.7.4
 numpy==1.18.5
 pandas==1.2.5
 pycuda==2022.2.2
 scikit_learn==1.2.1
 scipy==1.7.3
 sympy==1.9
-torch==1.6.0
+torch==1.13.1
 tqdm==4.64.1
