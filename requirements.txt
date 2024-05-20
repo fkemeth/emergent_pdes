@@ -4,7 +4,6 @@ lpde==0.0.1
 matplotlib==3.7.0
 numpy==1.24.2
 pandas==1.5.3
-pycuda==2022.2.2
 scikit_learn==1.2.1
 scipy==1.10.1
 sympy==1.11.1

@@ -6,12 +6,9 @@ import torch.nn.functional as F
 import torch.utils.data
 import pickle
 import findiff
-# from torchvision import transforms
 
 import numpy as np
 import matplotlib.pyplot as plt
-
-import cudamat as cm
 
 from sklearn.decomposition import TruncatedSVD
 from scipy.integrate import ode
@@ -64,26 +61,25 @@ def perturb_limit_cycle(Ad, n, config):
     progress_bar = tqdm.tqdm(range(t_start, t_start+n_per),
                              total=n_per, leave=True)
 
-    cm.cublas_init()
-    v_mono = cm.CUDAMatrix(np.eye(2*int(config["N_int"])))
+    # Configure PyTorch for M1 GPU (if available)
+    device = torch.device(config["device"])
 
-    # for i in range(t_start, t_start+n_per):
-    for i in progress_bar:
-        # print(i)
-        # jacobian = cm.CUDAMatrix(mint.jac(0, Ad["data"][i], Ad["pars"]))
-        # v_mono = v_mono + dt_per*cm.dot(jacobian, v_mono)
-        jacobian = cm.CUDAMatrix(mint.jac(0, Ad["data"][i], Ad["pars"]))
-        v_mono.add(cm.dot(jacobian, v_mono).mult(dt_per), target=v_mono)
+    # Initialize your matrix
+    N_int = int(config["N_int"])
+    v_mono = torch.eye(2*N_int).float(), device=device)
 
-    evals, evecs = np.linalg.eig(v_mono.asarray())
-    # v_mono = np.eye(2*int(config["N_int"]))
-    # t_start = n*int(config["T_off"])
-    # for i in range(t_start, t_start+n_per):
-    #     # print(i)
-    #     jacobian = mint.jac(0, Ad["data"][i], Ad["pars"])
-    #     v_mono = v_mono + dt_per*np.dot(jacobian, v_mono)
+    # Main loop
+    for i in tqdm.tqdm(range(t_start, t_start + n_per)):  # Adjusted to use tqdm for progress
+        # Retrieve Jacobian matrix and convert it to a PyTorch tensor
+        jacobian_np = mint.jac(0, Ad["data"][i], Ad["pars"])
+        jacobian = torch.from_numpy(jacobian_np).float().to(device)
 
-    # evals, evecs = np.linalg.eig(v_mono)
+        # Matrix multiplication and addition in place
+        temp_result = torch.mm(jacobian, v_mono)
+        v_mono += dt_per * temp_result
+
+
+    evals, evecs = np.linalg.eig(v_mono.detach().cpu()numpy())
     idx = np.abs(evals).argsort()[::-1]
     evals = evals[idx]
     evecs = evecs[:, idx]
